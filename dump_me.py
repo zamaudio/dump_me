@@ -126,13 +126,13 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         ("Tag",            char*4),   # $MME
         ("Name",           char*16),  #
         ("Hash",           uint8_t*32), #
-        ("Unk34",          uint32_t), #
+        ("LoadBaseA4",     uint32_t), #
         ("Offset",         uint32_t), # From the manifest
-        ("Unk38",          uint32_t), #
+        ("OffsetLUT",      uint32_t), #
         ("Size",           uint32_t), #
-        ("Unk44",          uint32_t), #
-        ("Unk48",          uint32_t), #
-        ("LoadBase",       uint32_t), #
+        ("UncompSize",     uint32_t), #
+        ("UncompSize2",    uint32_t), #
+        ("LoadBaseA5",     uint32_t), #
         ("Flags",          uint32_t), #
         ("Unk54",          uint32_t), #
         ("Unk58",          uint32_t), #
@@ -171,13 +171,13 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         nm = self.Name.rstrip('\0')
         print "Module name:    %s" % (nm)
         print "Hash:           %s" % (" ".join("%02X" % v for v in self.Hash))
-        print "Unk34:          0x%08X" % (self.Unk34)
+        print "LoadBaseA4:     0x%08X" % (self.LoadBaseA4)
         print "Offset:         0x%08X" % (self.Offset)
-        print "Unk38:          0x%08X" % (self.Unk38)
+        print "OffsetLUT:      0x%08X" % (self.OffsetLUT)
         print "Data length:    0x%08X" % (self.Size)
-        print "Unk44:          0x%08X" % (self.Unk44)
-        print "Unk48:          0x%08X" % (self.Unk48)
-        print "LoadBase:       0x%08X" % (self.LoadBase)
+        print "UncompSize:     0x%08X" % (self.UncompSize)
+        print "UncompSize2:    0x%08X" % (self.UncompSize2)
+        print "LoadBaseA5:     0x%08X" % (self.LoadBaseA5)
         print "Flags:          0x%08X" % (self.Flags)
         self.print_flags()
         print "Unk54:          0x%08X" % (self.Unk54)
@@ -303,7 +303,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             if mod.comptype() != COMP_TYPE_HUFFMAN:
                 huff_end = min(huff_end, mod.Offset)
             else:
-                print "Huffman module:      %r %08X/%08X" % (mod.Name.rstrip('\0'), mod.Unk34, mod.Unk38)
+                print "Huffman module:      %r %08X/%08X" % (mod.Name.rstrip('\0'), mod.Offset + mod.OffsetLUT, mod.Size)
         for imod in range(len(self.modules)):
             mod = self.modules[imod]
             nm = mod.Name.rstrip('\0')
@@ -318,8 +318,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                     ext = "lzma"
                 elif mod.comptype() == COMP_TYPE_HUFFMAN:
                     ext = "huff"
-                    nm = self.PartitionName
-                    size = huff_end - mod.Offset
+		    soff = soff + mod.OffsetLUT
                 else:
                     ext = "bin"
                 if self.Tag == '$MAN':
