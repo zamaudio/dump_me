@@ -8,13 +8,13 @@ from Crypto import Random
 
 filen = open("rsa_n", "rb")
 filesig = open("rsa_sig", "rb")
-fileraw = open("verifythis", "rb")
+fileraw = open("verifythis2", "rb")
 
 e = 17L
 n = bytes_to_long(filen.read(0x100)[::-1])
 sig = filesig.read(0x100)[::-1]
 
-length = 0x25a000-0x958
+length = 0x25a000-0x890
 offset = 0x0
 
 #filerevsig = open("rsa_sig2rev","wb")
