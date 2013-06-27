@@ -1,18 +1,21 @@
 from Crypto.Util.number import bytes_to_long
 from Crypto.Hash import SHA256
+from Crypto.Hash import SHA1
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.Signature import PKCS1_PSS
 from Crypto import Random
 
-filen = open("rsa_n2", "rb")
+filen = open("rsa_n", "rb")
 filee = open("rsa_e", "rb")
-filesig = open("rsa_sig2", "rb")
+filesig = open("rsa_sig", "rb")
 fileraw = open("verifythis", "rb")
+filepriv = open("intel.priv", "rb")
 
 e = 17L
-n = bytes_to_long(filen.read(0x100)[::-1])
+n = bytes_to_long(filen.read(0x100))
 sig = filesig.read(0x100)[::-1]
+priv = bytes_to_long(filepriv.read(0x100)[::-1])
 
 #length = 0x1b87f2
 length = 0x25a000-0x958
@@ -35,47 +38,29 @@ verifier2 = PKCS1_PSS.new(pubkey,saltLen=8)
 verifier3 = PKCS1_PSS.new(pubkey,saltLen=1)
 verifier4 = PKCS1_PSS.new(pubkey,saltLen=0)
 verifier5 = PKCS1_PSS.new(pubkey,saltLen=20)
+verifier6 = PKCS1_PSS.new(pubkey,saltLen=17)
 
 fileraw.seek(offset)
 raw = fileraw.read(length)
 
-digest = SHA256.new()
-digest.update(raw)
-print digest.hexdigest()
+digest = SHA256.new(raw)
 
-if verifier1.verify(digest, sig):
-	print "Verified SHA256 PKCS1 1.5 OK"
-if verifier2.verify(digest, sig):
-	print "Verified SHA256 PSS_8 OK"
-if verifier3.verify(digest, sig):
-	print "Verified SHA256 PSS_1 OK"
-if verifier4.verify(digest, sig):
-	print "Verified SHA256 PSS_0 OK"
-if verifier5.verify(digest, sig):
-	print "Verified SHA256 PSS_20 OK"
+print "Digest: "+digest.hexdigest()
 
-'''
-if verifier1.verify(digest1, sig):
-	print "Verified SHA 1.5 OK"
-if verifier2.verify(digest1, sig, saltlen=8):
-	print "Verified SHA PSS OK"
-if verifier1.verify(digest2, sig):
-	print "Verified SHA224 1.5 OK"
-if verifier2.verify(digest2, sig):
-	print "Verified SHA224 PSS OK"
-if verifier1.verify(digest3, sig):
-	print "Verified SHA256 1.5 OK"
-if verifier2.verify(digest3, sig):
-	print "Verified SHA256 PSS OK"
-if verifier1.verify(digest4, sig):
-	print "Verified SHA384 1.5 OK"
-if verifier2.verify(digest4, sig):
-	print "Verified SHA384 PSS OK"
-if verifier1.verify(digest5, sig):
-	print "Verified SHA512 1.5 OK"
-if verifier2.verify(digest5, sig):
-	print "Verified SHA512 PSS OK"
-'''
+sha1digest = SHA1.new(digest.hexdigest())
+
+if verifier1.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PKCS1 1.5 OK"
+if verifier2.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PSS_8 OK"
+if verifier3.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PSS_1 OK"
+if verifier4.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PSS_0 OK"
+if verifier5.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PSS_20 OK"
+if verifier6.verify(sha1digest, sig):
+	print "Verified SHA1+SHA256 PSS_17 OK"
 
 filen.close()
 filee.close()
