@@ -7,25 +7,19 @@ from Crypto.Signature import PKCS1_PSS
 from Crypto import Random
 
 filen = open("rsa_n", "rb")
-filee = open("rsa_e", "rb")
 filesig = open("rsa_sig", "rb")
 fileraw = open("verifythis", "rb")
-filepriv = open("intel.priv", "rb")
 
 e = 17L
-n = bytes_to_long(filen.read(0x100))
+n = bytes_to_long(filen.read(0x100)[::-1])
 sig = filesig.read(0x100)[::-1]
-priv = bytes_to_long(filepriv.read(0x100)[::-1])
 
-#length = 0x1b87f2
 length = 0x25a000-0x958
-
 offset = 0x0
-#length = 0x20
 
-filerevsig = open("rsa_sig2rev","wb")
-filerevsig.write(sig)
-filerevsig.close()
+#filerevsig = open("rsa_sig2rev","wb")
+#filerevsig.write(sig)
+#filerevsig.close()
 
 #f = open('wtf','r')
 #key = RSA.importKey(f.read())
@@ -63,7 +57,6 @@ if verifier6.verify(sha1digest, sig):
 	print "Verified SHA1+SHA256 PSS_17 OK"
 
 filen.close()
-filee.close()
 filesig.close()
 fileraw.close()
 
