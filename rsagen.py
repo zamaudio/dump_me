@@ -2,6 +2,12 @@ from Crypto.Util.number import bytes_to_long
 from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 from Crypto import Random
+import sys
+
+args=sys.argv
+if len(sys.argv) == 1:
+	print "Usage: python rsagen.py <me partition file>"
+	sys.exit()	
 
 keypair = RSA.generate(2048, e=17)
 
@@ -25,7 +31,11 @@ def bytearr2int(s):
 		num = num*256 + b
 	return num
 
-f = open("FTPR_part.bin", "rb")
+p = open("padding", "rb")
+padding = p.read(223)
+p.close()
+
+f = open(args[1], "rb")
 hdr1 = f.read(0x80)
 pubkey = bytes2int(f.read(0x100))
 pubexp = bytes2int(f.read(0x4))
@@ -44,8 +54,8 @@ h = SHA256.new()
 h.update(hdr1)
 h.update(hdr2)
 
-mhash = bytes2int(h.digest(), False)
-print "manifest hash:\n", hex(mhash)
+mhash = h.digest()
+print "manifest hash:\n", hex(bytes2int(mhash, False))
 print
 print "vendor signature:\n", hex(rsasig)
 print
@@ -56,8 +66,7 @@ n = keypair.n
 e = keypair.e 
 d = keypair.d
 
-message = bytearr2int(bytearray.fromhex("01ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff003031300d060960864801650304020105000420"+hex(mhash)[2:-1]))
-
+message = bytes2int(padding+mhash, False)
 ciphertext = pow(message, d, n)
 
 print "user signature:\n", hex(ciphertext)
