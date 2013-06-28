@@ -5,8 +5,10 @@ from Crypto import Random
 
 keypair = RSA.generate(2048, e=17)
 
+print "new user keys:"
 print keypair.publickey().exportKey()
 print keypair.exportKey()
+print
 
 import struct, hashlib
 
@@ -44,6 +46,11 @@ h.update(hdr2)
 
 mhash = bytes2int(h.digest(), False)
 print "manifest hash:\n", hex(mhash)
+print
+print "vendor signature:\n", hex(rsasig)
+print
+print "vendor modulus (n):\n", hex(pubkey)
+print
 
 n = keypair.n 
 e = keypair.e 
@@ -53,13 +60,20 @@ message = bytearr2int(bytearray.fromhex("01fffffffffffffffffffffffffffffffffffff
 
 ciphertext = pow(message, d, n)
 
-print "user sig:\n",hex(ciphertext)
-print "user n:\n",hex(n) 
+print "user signature:\n", hex(ciphertext)
+print
+print "user modulus (n):\n", hex(n) 
+print
 
 decusersig = pow(ciphertext, e, n)
 decvendorsig = pow(rsasig, 17, pubkey)
 
 print "decrypted user signature using user pubkey:\n", hex(decusersig)
+print
 print "decrypted vendor signature using vendor pubkey:\n", hex(decvendorsig)
-
+print
+if decusersig == decvendorsig:
+	print "Match!"
+else:
+	print "Failed"
 
