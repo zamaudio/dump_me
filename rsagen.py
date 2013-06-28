@@ -1,12 +1,7 @@
 from Crypto.Util.number import bytes_to_long
-from Crypto.Util import asn1
 from Crypto.Hash import SHA256
-from Crypto.Hash import SHA1
 from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
-from Crypto.Signature import PKCS1_PSS
 from Crypto import Random
-from Crypto.Cipher import PKCS1_v1_5
 
 keypair = RSA.generate(2048, e=17)
 
@@ -56,14 +51,15 @@ d = keypair.d
 
 message = bytearr2int(bytearray.fromhex("01ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff003031300d060960864801650304020105000420"+hex(mhash)[2:-1]))
 
-#cipher = PKCS1_v1_5.new(pk)
-#ciphertext = cipher.encrypt(message+h.digest())
 ciphertext = pow(message, d, n)
 
-print "fake sig:\n",hex(ciphertext)
-print "fake n:\n",hex(n) 
+print "user sig:\n",hex(ciphertext)
+print "user n:\n",hex(n) 
 
-decfakesig = pow(ciphertext, e, n)
+decusersig = pow(ciphertext, e, n)
+decvendorsig = pow(rsasig, 17, pubkey)
 
-print "decrypted fake signature\n", hex(decfakesig)
+print "decrypted user signature using user pubkey:\n", hex(decusersig)
+print "decrypted vendor signature using vendor pubkey:\n", hex(decvendorsig)
+
 
