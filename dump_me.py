@@ -238,6 +238,17 @@ def extract_code_mods(nm, f, soff):
     manif.extract(f, soff)
     os.chdir("..")
 
+class HuffmanOffsetBytes(ctypes.LittleEndianStructure):
+    _fields_ = [
+        ("Offset", uint32_t, 24),
+        ("Length", uint8_t),
+    ]
+
+class HuffmanOffsets(ctypes.Union):
+    _fields_ = [
+        ("b", HuffmanOffsetBytes),
+        ("asword", uint32_t),
+    ]
 
 class MeManifestHeader(ctypes.LittleEndianStructure):
     _fields_ = [
@@ -348,7 +359,6 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
         offset = self.huff_start
         self.llutoffset = 0
         self.datalen = 0
-        self.treestart = 0
         self.datastart = 0
         self.llutlen = 0
         if f[offset:offset+4] == 'LLUT':
@@ -417,6 +427,20 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             print " => %s" % (fname)
             open(fname, "wb").write(f[soff:soff+subsize])
             extract_code_mods(subtag, f, soff)
+
+        # Huffman table
+	fhufftab = open("%s_mod.hufftab" % self.PartitionName, "w")
+	fhufftab.write("Huffman hex frequency table:\n")
+	fhufftab.write("Frequency  CHR     Flag + Offset\n")
+        for huffoff in range(self.llutlen/4):
+            soff = self.huff_start + 0x40 + huffoff*4
+            huffmanoffsets = HuffmanOffsets()
+            huffmanoffsets.asword = struct.unpack("<I", f[soff:soff+4])[0]
+            lengt = divmod(huffmanoffsets.asword, 0x10000000)[0] / 4 + 1
+            hufftab = struct.unpack("<I", f[huffmanoffsets.b.Offset:huffmanoffsets.b.Offset+4])[0]
+            hufftab = divmod(hufftab, 1 << (8*(lengt)))[1]
+            fhufftab.write("0x%08X 0x%02X    (0x%08X)\n"  % (hufftab, huffoff, huffmanoffsets.asword))
+        fhufftab.close()
 
     def pprint(self):
         print "Module Type: %d, Subtype: %d" % (self.ModuleType, self.ModuleSubType)
