@@ -23,7 +23,6 @@
 #    distribution.
 #
 # Modified version 2013-12-29 Damien Zammit
-#
 
 import ctypes
 import struct
@@ -167,13 +166,13 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         ("Tag",            char*4),   # $MME
         ("Name",           char*16),  #
         ("Hash",           uint8_t*32), #
-        ("LoadBaseA4",     uint32_t), #
+        ("Unk34",          uint32_t), #
         ("Offset",         uint32_t), # From the manifest
-        ("SizeUncompr",    uint32_t), #
+        ("Unk3C",          uint32_t), #
         ("Size",           uint32_t), #
-        ("OffsetLLUTSt",   uint32_t), #
-        ("OffsetLLUTSt2",  uint32_t), #
-        ("LoadBaseA5",     uint32_t), #
+        ("Unk44",          uint32_t), #
+        ("Unk48",          uint32_t), #
+        ("LoadBase",       uint32_t), #
         ("Flags",          uint32_t), #
         ("Unk54",          uint32_t), #
         ("Unk58",          uint32_t), #
@@ -212,13 +211,13 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         nm = self.Name.rstrip('\0')
         print "Module name:    %s" % (nm)
         print "Hash:           %s" % (" ".join("%02X" % v for v in self.Hash))
-        print "LoadBaseA4:     0x%08X" % (self.LoadBaseA4)
+        print "Unk34:          0x%08X" % (self.Unk34)
         print "Offset:         0x%08X" % (self.Offset)
-        print "SizeUncompr:    0x%08X" % (self.SizeUncompr)
-        print "Size:           0x%08X" % (self.Size)
-        print "OffsetLLUTSt:   0x%08X" % (self.OffsetLLUTSt)
-        print "OffsetLLUTSt2:  0x%08X" % (self.OffsetLLUTSt2)
-        print "LoadBaseA5:     0x%08X" % (self.LoadBaseA5)
+        print "Unk3C:          0x%08X" % (self.Unk3C)
+        print "Data length:    0x%08X" % (self.Size)
+        print "Unk44:          0x%08X" % (self.Unk44)
+        print "Unk48:          0x%08X" % (self.Unk48)
+        print "LoadBase:       0x%08X" % (self.LoadBase)
         print "Flags:          0x%08X" % (self.Flags)
         self.print_flags()
         print "Unk54:          0x%08X" % (self.Unk54)
@@ -285,7 +284,8 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
         else:
             raise Exception("Don't know how to parse modules for manifest tag %s!" % self.Tag)
 
-	modmap = {}
+        modmap = {}
+        self.huff_start = 0
         for i in range(self.NumModules):
             mod = get_struct(f, offset, htype)
             if not [mod.Tag in '$MME', '$MDL']:
@@ -294,12 +294,9 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             modmap[nm] = mod
             self.modules.append(mod)
             if mod.comptype() == COMP_TYPE_HUFFMAN:
-                llut = get_struct(f, orig_off + mod.Offset, HuffmanLUTHeader)
-		lluttag = "LLUT"
-		if llut.LLUT != lluttag.rstrip('\0'):
-			raise Exception("Bad Huffman LLUT header")
-		mod.huff_start = llut.DataStart + mod.OffsetLLUTSt2
-		mod.huff_end = mod.huff_start + mod.Size
+                if self.huff_start and self.huff_start != orig_off + mod.Offset:
+                    print "Warning: inconsistent start offset for Huffman modules!"
+                self.huff_start = orig_off + mod.Offset
             offset += hdrlen
 
         self.partition_end = None
@@ -348,41 +345,61 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             offset += mod.Size
         
         # check for huffman LUT
-        #offset = self.huff_start
-        #if f[offset+1:offset+4] == 'LUT':
-        #    cnt, unk8, unkc, complen = struct.unpack("<IIII", f[offset+4:offset+20])
-        #    self.huff_end = offset + 0x40 + 4*cnt + complen
-        #else:
-        #    self.huff_start = 0xFFFFFFFF
-        #    self.huff_end = 0xFFFFFFFF
+        offset = self.huff_start
+        self.llutoffset = 0
+        self.datalen = 0
+        self.treestart = 0
+        self.datastart = 0
+        self.llutlen = 0
+        if f[offset:offset+4] == 'LLUT':
+	    self.llutoffset, unk08, unk0c, self.datalen, self.datastart, a,b,c,d,e,f, self.llutlen = struct.unpack("<IIIIIIIIIIII", f[offset+4:offset+52])
+	    self.huff_end = self.datastart + self.datalen
+        else:
+            self.huff_start = 0xFFFFFFFF
+            self.huff_end = 0xFFFFFFFF
 
     def extract(self, f, offset):
+        huff_end = self.huff_end
         nhuffs = 0
         for mod in self.modules:
-            llut = get_struct(f, mod.Offset, HuffmanLUTHeader)
+            if mod.comptype() != COMP_TYPE_HUFFMAN:
+                huff_end = min(huff_end, mod.Offset)
+            else:
+                print "Huffman module data:  %r %08X/%08X" % (mod.Name.rstrip('\0'), self.datastart, self.datalen)
+                print "Huffman freq offsets: %r %08X/%08X" % (mod.Name.rstrip('\0'),self.huff_start + 0x40, self.llutlen)
+                nhuffs += 1
         for imod in range(len(self.modules)):
             mod = self.modules[imod]
             nm = mod.Name.rstrip('\0')
             islast = (imod == len(self.modules)-1)
-            if mod.comptype() == COMP_TYPE_HUFFMAN:
-                print "Huffman module: %r %08X/%08X" % (nm, mod.huff_start, mod.Size),
-                nhuffs += 1
-            elif mod.comptype() == COMP_TYPE_LZMA:
-	        print "Module: %r %08X/%08X" % (nm, mod.Offset, mod.Size),
-            if mod.Offset in [0xFFFFFFFF, 0] or (mod.Size in [0xFFFFFFFF, 0] and mod.comptype() != COMP_TYPE_HUFFMAN):
+            print "Module:      %r %08X" % (nm, mod.Size),
+            if mod.Offset in [0xFFFFFFFF, 0] or (mod.Size in [0xFFFFFFFF, 0] and not islast and mod.comptype() != COMP_TYPE_HUFFMAN):
                 print " (skipping)"
             else:
+                soff = offset + mod.Offset
+                size = mod.Size
                 if mod.comptype() == COMP_TYPE_LZMA:
-                    soff = offset + mod.Offset
-                    size = mod.Size
                     ext = "lzma"
                 elif mod.comptype() == COMP_TYPE_HUFFMAN:
-                    soff = mod.huff_start
-		    size = mod.Size
-		    ext = "huff"
-                else:
+                    if nhuffs != 1:
+                        nm = self.PartitionName
+
+		    soff = self.huff_start + 0x40
+                    size = self.llutlen
+		    ext = "huffoff"
+                    fnametab = "%s_mod.%s" % (nm, ext)
+                    print " => %s" % (fnametab),
+                    open(fnametab, "wb").write(f[soff:soff+size])
+
+                    #ext = "huff"
+		    #soff = self.huff_start
+                    #size = huff_end - mod.Offset
+
+                    ext = "huff"
+		    soff = self.datastart
+		    size = self.datalen
+		else:
                     ext = "bin"
-                    soff = offset + mod.Offset
                 if self.Tag == '$MAN':
                     ext = "mod"
                     moff = soff+0x50
@@ -391,9 +408,9 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                         lzf.write(f[moff:moff+5])
                         lzf.write(struct.pack("<Q", mod.UncompressedSize))
                         lzf.write(f[moff+5:moff+mod.Size-0x50])
-                fname = "%s_mod.%s" % (nm, ext)
-                print " => %s" % (fname)
-                open(fname, "wb").write(f[soff:soff+size])
+                fnamemod = "%s_mod.%s" % (nm, ext)
+                print " => %s" % (fnamemod)
+                open(fnamemod, "wb").write(f[soff:soff+size])
         for subtag, soff, subsize in self.updparts:
             fname = "%s_udc.bin" % subtag
             print "Update part: %r %08X/%08X" % (subtag, soff, subsize),
