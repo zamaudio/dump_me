@@ -377,7 +377,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                     size = mod.Size
                     ext = "lzma"
                 elif mod.comptype() == COMP_TYPE_HUFFMAN:
-                    soff = llut.DataStart + mod.OffsetLLUTSt2
+                    soff = mod.huff_start
 		    size = mod.Size
 		    ext = "huff"
                 else:
