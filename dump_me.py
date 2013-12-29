@@ -1,3 +1,30 @@
+# Intel ME ROM image dumper/extractor
+# Copyright (c) 2012 Igor Skochinsky
+# Version 0.1 2012-10-10
+# Version 0.2 2013-08-15
+#
+# This software is provided 'as-is', without any express or implied
+# warranty. In no event will the authors be held liable for any damages
+# arising from the use of this software.
+#
+# Permission is granted to anyone to use this software for any purpose,
+# including commercial applications, and to alter it and redistribute it
+# freely, subject to the following restrictions:
+#
+#    1. The origin of this software must not be misrepresented; you must not
+#    claim that you wrote the original software. If you use this software
+#    in a product, an acknowledgment in the product documentation would be
+#    appreciated but is not required.
+#
+#    2. Altered source versions must be plainly marked as such, and must not be
+#    misrepresented as being the original software.
+#
+#    3. This notice may not be removed or altered from any source
+#    distribution.
+#
+# Modified version 2013-12-29 Damien Zammit
+#
+
 import ctypes
 import struct
 import sys
@@ -121,6 +148,20 @@ COMP_TYPE_LZMA = 2
 MeModuleTypes      = ["DEFAULT", "PRE_ME_KERNEL", "VENOM_TPM", "APPS_QST_DT", "APPS_AMT", "TEST"]
 MeApiTypes         = ["API_TYPE_DATA", "API_TYPE_ROMAPI", "API_TYPE_KERNEL", "<unknown>"]
 
+class HuffmanLUTHeader(ctypes.LittleEndianStructure):
+    _fields_ = [
+        ("LLUT",           char*4),   # LLUT
+        ("Unk04",          uint32_t), #
+        ("Unk08",          uint32_t), #
+        ("Unk0C",          uint32_t), #
+        ("Unk10",          uint32_t), #
+        ("DataStart",      uint32_t), # Start of data
+        ("Unk18",          uint8_t*24), #
+        ("LLUTLen",        uint32_t), #
+        ("Unk34",          uint32_t), #
+        ("Chipset",        char*8),   # PCH
+    ]
+
 class MeModuleHeader2(ctypes.LittleEndianStructure):
     _fields_ = [
         ("Tag",            char*4),   # $MME
@@ -128,10 +169,10 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         ("Hash",           uint8_t*32), #
         ("LoadBaseA4",     uint32_t), #
         ("Offset",         uint32_t), # From the manifest
-        ("OffsetLUT",      uint32_t), #
+        ("SizeUncompr",    uint32_t), #
         ("Size",           uint32_t), #
-        ("UncompSize",     uint32_t), #
-        ("UncompSize2",    uint32_t), #
+        ("OffsetLLUTSt",   uint32_t), #
+        ("OffsetLLUTSt2",  uint32_t), #
         ("LoadBaseA5",     uint32_t), #
         ("Flags",          uint32_t), #
         ("Unk54",          uint32_t), #
@@ -173,10 +214,10 @@ class MeModuleHeader2(ctypes.LittleEndianStructure):
         print "Hash:           %s" % (" ".join("%02X" % v for v in self.Hash))
         print "LoadBaseA4:     0x%08X" % (self.LoadBaseA4)
         print "Offset:         0x%08X" % (self.Offset)
-        print "OffsetLUT:      0x%08X" % (self.OffsetLUT)
-        print "Data length:    0x%08X" % (self.Size)
-        print "UncompSize:     0x%08X" % (self.UncompSize)
-        print "UncompSize2:    0x%08X" % (self.UncompSize2)
+        print "SizeUncompr:    0x%08X" % (self.SizeUncompr)
+        print "Size:           0x%08X" % (self.Size)
+        print "OffsetLLUTSt:   0x%08X" % (self.OffsetLLUTSt)
+        print "OffsetLLUTSt2:  0x%08X" % (self.OffsetLLUTSt2)
         print "LoadBaseA5:     0x%08X" % (self.LoadBaseA5)
         print "Flags:          0x%08X" % (self.Flags)
         self.print_flags()
@@ -244,7 +285,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
         else:
             raise Exception("Don't know how to parse modules for manifest tag %s!" % self.Tag)
 
-        modmap = {}
+	modmap = {}
         for i in range(self.NumModules):
             mod = get_struct(f, offset, htype)
             if not [mod.Tag in '$MME', '$MDL']:
@@ -252,8 +293,16 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             nm = mod.Name.rstrip('\0')
             modmap[nm] = mod
             self.modules.append(mod)
+            if mod.comptype() == COMP_TYPE_HUFFMAN:
+                llut = get_struct(f, orig_off + mod.Offset, HuffmanLUTHeader)
+		lluttag = "LLUT"
+		if llut.LLUT != lluttag.rstrip('\0'):
+			raise Exception("Bad Huffman LLUT header")
+		mod.huff_start = llut.DataStart + mod.OffsetLLUTSt2
+		mod.huff_end = mod.huff_start + mod.Size
             offset += hdrlen
 
+        self.partition_end = None
         hdr_end = orig_off + self.Size*4
         while offset < hdr_end:
             print "tags %08X" % offset
@@ -281,6 +330,8 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             else:
                 vals = array.array("I", f[offset+8:offset+elen*4])
                 print "%s: %s" % (tag[1:], " ".join("%08X" % v for v in vals))
+                if tag == '$MCP':
+                    self.partition_end = vals[0] + vals[1]
             offset += elen*4
 
         offset = hdr_end
@@ -295,32 +346,43 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             mod.Offset = offset - orig_off
             mod.UncompressedSize = mfhdr.UncompressedSize
             offset += mod.Size
-
+        
+        # check for huffman LUT
+        #offset = self.huff_start
+        #if f[offset+1:offset+4] == 'LUT':
+        #    cnt, unk8, unkc, complen = struct.unpack("<IIII", f[offset+4:offset+20])
+        #    self.huff_end = offset + 0x40 + 4*cnt + complen
+        #else:
+        #    self.huff_start = 0xFFFFFFFF
+        #    self.huff_end = 0xFFFFFFFF
 
     def extract(self, f, offset):
-        huff_end = 0xFFFFFFFF
+        nhuffs = 0
         for mod in self.modules:
-            if mod.comptype() != COMP_TYPE_HUFFMAN:
-                huff_end = min(huff_end, mod.Offset)
-            else:
-                print "Huffman module:      %r %08X/%08X" % (mod.Name.rstrip('\0'), mod.Offset + mod.OffsetLUT, mod.Size)
+            llut = get_struct(f, mod.Offset, HuffmanLUTHeader)
         for imod in range(len(self.modules)):
             mod = self.modules[imod]
             nm = mod.Name.rstrip('\0')
             islast = (imod == len(self.modules)-1)
-            print "Module:      %r %08X/%08X" % (nm, mod.Offset, mod.Size),
-            if mod.Offset in [0xFFFFFFFF, 0] or (mod.Size in [0xFFFFFFFF, 0] and not islast and mod.comptype() != COMP_TYPE_HUFFMAN):
+            if mod.comptype() == COMP_TYPE_HUFFMAN:
+                print "Huffman module: %r %08X/%08X" % (nm, mod.huff_start, mod.Size),
+                nhuffs += 1
+            elif mod.comptype() == COMP_TYPE_LZMA:
+	        print "Module: %r %08X/%08X" % (nm, mod.Offset, mod.Size),
+            if mod.Offset in [0xFFFFFFFF, 0] or (mod.Size in [0xFFFFFFFF, 0] and mod.comptype() != COMP_TYPE_HUFFMAN):
                 print " (skipping)"
             else:
-                soff = offset + mod.Offset
-                size = mod.Size
                 if mod.comptype() == COMP_TYPE_LZMA:
+                    soff = offset + mod.Offset
+                    size = mod.Size
                     ext = "lzma"
                 elif mod.comptype() == COMP_TYPE_HUFFMAN:
-                    ext = "huff"
-		    soff = soff + mod.OffsetLUT
+                    soff = llut.DataStart + mod.OffsetLLUTSt2
+		    size = mod.Size
+		    ext = "huff"
                 else:
                     ext = "bin"
+                    soff = offset + mod.Offset
                 if self.Tag == '$MAN':
                     ext = "mod"
                     moff = soff+0x50
@@ -379,14 +441,14 @@ PT_ROM     = 5
 
 class MeFptEntry(ctypes.LittleEndianStructure):
     _fields_ = [
-        ("Name",            char*4),   # partition name
-        ("Owner",           char*4),   # partition owner?
-        ("Offset",          uint32_t), # from the start of FPT, or 0
-        ("Size",            uint32_t), #
-        ("TokensOnStart",   uint32_t), #
-        ("MaxTokens",       uint32_t), #
-        ("ScratchSectors",  uint32_t), #
-        ("Flags",           uint32_t), #
+        ("Name",            char*4),   # 00 partition name
+        ("Owner",           char*4),   # 04 partition owner?
+        ("Offset",          uint32_t), # 08 from the start of FPT, or 0
+        ("Size",            uint32_t), # 0C
+        ("TokensOnStart",   uint32_t), # 10
+        ("MaxTokens",       uint32_t), # 14
+        ("ScratchSectors",  uint32_t), # 18
+        ("Flags",           uint32_t), # 1C
     ]
     #def __init__(self, f, offset):
         #self.sig1, self.Owner,  self.Offset, self.Size  = struct.unpack("<4s4sII", f[offset:offset+0x10])
@@ -483,8 +545,12 @@ region_fnames =["Flash Descriptor", "BIOS Region", "ME Region", "GbE Region", "P
 
 def print_flreg(val, name):
     print "%s region:" % name
-    lim  = ((val >> 4) & 0xFFF000) | 0xFFF
+    lim  = ((val >> 4) & 0xFFF000)
     base = (val << 12) & 0xFFF000
+    if lim == 0 and base == 0xFFF000:
+        print "  [unused]"
+        return None
+    lim |= 0xFFF
     print "  %08X - %08X (0x%08X bytes)" % (base, lim, lim - base + 1)
     return (base, lim)
 
@@ -500,24 +566,79 @@ def parse_descr(f, offset, extract):
     frba = (FLMAP0 >> 12) & 0xFF0
     nc   = (FLMAP0 >>  8) & 0x3
     fcba = (FLMAP0 <<  4) & 0xFF0
-    print "Number of regions: %d" % nr
-    print "Number of components: %d" % nc
+    print "Number of regions: %d (besides Descriptor)" % nr
+    print "Number of components: %d" % (nc+1)
     print "FRBA: 0x%08X" % frba
     print "FCBA: 0x%08X" % fcba
     me_offset = -1
     for i in range(nr+1):
         FLREG = struct.unpack("<I", f[offset + frba + i*4:offset + frba + i*4 + 4])[0]
-        base, lim = print_flreg(FLREG, region_names[i])
-        if i == 2:
-            me_offset = offset + base
-        if extract:
-            fname = "%s.bin" % region_fnames[i]
-            print " => %s" % (fname)
-            open(fname, "wb").write(f[offset + base:offset + base + lim + 1])
+        r = print_flreg(FLREG, region_names[i])
+        if r:
+            base, lim = r
+            if i == 2:
+                me_offset = offset + base
+            if extract:
+                fname = "%s.bin" % region_fnames[i]
+                print " => %s" % (fname)
+                open(fname, "wb").write(f[offset + base:offset + base + lim + 1])
     return me_offset
 
+class AcManifestHeader(ctypes.LittleEndianStructure):
+    _fields_ = [
+        ("ModuleType",     uint16_t), # 00
+        ("ModuleSubType",  uint16_t), # 02
+        ("HeaderLen",      uint32_t), # 04 in dwords
+        ("HeaderVersion",  uint32_t), # 08
+        ("ChipsetID",      uint16_t), # 0C
+        ("Flags",          uint16_t), # 0E 0x80000000 = Debug
+        ("ModuleVendor",   uint32_t), # 10
+        ("Date",           uint32_t), # 14 BCD yyyy.mm.dd
+        ("Size",           uint32_t), # 18 in dwords
+        ("Reserved1",      uint32_t), # 1C
+        ("CodeControl",    uint32_t), # 20
+        ("ErrorEntryPoint",uint32_t), # 24
+        ("GDTLimit",       uint32_t), # 28
+        ("GDTBasePtr",     uint32_t), # 2C
+        ("SegSel",         uint32_t), # 30
+        ("EntryPoint",     uint32_t), # 34
+        ("Reserved2",      uint32_t*16), # 38
+        ("KeySize",        uint32_t), # 78
+        ("ScratchSize",    uint32_t), # 7C
+        ("RsaPubKey",      uint32_t*64), # 80
+        ("RsaPubExp",      uint32_t),    # 180
+        ("RsaSig",         uint32_t*64), # 184
+        # 284
+    ]
+
+    def pprint(self):
+        print "Module Type: %d, Subtype: %d" % (self.ModuleType, self.ModuleSubType)
+        print "Header Length:       0x%02X (0x%X bytes)" % (self.HeaderLen, self.HeaderLen*4)
+        print "Header Version:      %d.%d" % (self.HeaderVersion>>16, self.HeaderVersion&0xFFFF)
+        print "ChipsetID:           0x%04X" % (self.ChipsetID)
+        print "Flags:               0x%04X" % (self.Flags),
+        print " [%s signed] [%s flag]" % (["production","debug"][(self.Flags>>15)&1], ["production","pre-production"][(self.Flags>>14)&1])
+        print "Module Vendor:       0x%04X" % (self.ModuleVendor)
+        print "Date:                %08X" % (self.Date)
+        print "Total Module Size:   0x%02X (0x%X bytes)" % (self.Size, self.Size*4)
+        print "Reserved1:           0x%08X" % (self.Reserved1)
+        print "CodeControl:         0x%08X" % (self.CodeControl)
+        print "ErrorEntryPoint:     0x%08X" % (self.ErrorEntryPoint)
+        print "GDTLimit:            0x%08X" % (self.GDTLimit)
+        print "GDTBasePtr:          0x%08X" % (self.GDTBasePtr)
+        print "SegSel:              0x%04X" % (self.SegSel)
+        print "EntryPoint:          0x%08X" % (self.EntryPoint)
+        print "Key size:            0x%02X (0x%X bytes)" % (self.KeySize, self.KeySize*4)
+        print "Scratch size:        0x%02X (0x%X bytes)" % (self.ScratchSize, self.ScratchSize*4)
+        print "RSA Public Key:      [skipped]"
+        print "RSA Public Exponent: %d" % (self.RsaPubExp)
+        print "RSA Signature:       [skipped]"
+        print "------End-------"
+
+print "Intel ME dumper/extractor v0.1"
 if len(sys.argv) < 2:
     print "Usage: dump_me.py MeImage.bin [-x] [offset]"
+    print "   -x: extract ME partitions and code modules"
 else:
     fname = sys.argv[1]
     extract = False
@@ -537,11 +658,22 @@ else:
            pass
         os.chdir("ME Region")
     if f[offset:offset+8] == "\x04\x00\x00\x00\xA1\x00\x00\x00":
-        manif = get_struct(f, offset, MeManifestHeader)
-        manif.parse_mods(f, offset)
+        while True:
+            manif = get_struct(f, offset, MeManifestHeader)
+            manif.parse_mods(f, offset)
+            manif.pprint()
+            if extract:
+                manif.extract(f, offset)
+            if manif.partition_end:
+                offset += manif.partition_end
+                print "Next partition: +%08X (%08X)" % (manif.partition_end, offset)
+            else:
+                break
+            if f[offset:offset+8] != "\x04\x00\x00\x00\xA1\x00\x00\x00":
+                break
+    elif f[offset:offset+8] == "\x02\x00\x00\x00\xA1\x00\x00\x00":
+        manif = get_struct(f, offset, AcManifestHeader)
         manif.pprint()
-        if extract:
-            manif.extract(f, offset)
     else:
         fpt = MeFptTable(f, offset)
         fpt.pprint()
