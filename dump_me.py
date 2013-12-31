@@ -29,6 +29,8 @@ import struct
 import sys
 import os
 import array
+import itertools
+from operator import itemgetter
 
 uint8_t  = ctypes.c_ubyte
 char     = ctypes.c_char
@@ -357,12 +359,13 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
         
         # check for huffman LUT
         offset = self.huff_start
-        self.llutoffset = 0
+        self.chunksize = 0
+        self.chunkcount = 0
         self.datalen = 0
         self.datastart = 0
         self.llutlen = 0
         if f[offset:offset+4] == 'LLUT':
-	    self.llutoffset, unk08, unk0c, self.datalen, self.datastart, a,b,c,d,e,f, self.llutlen = struct.unpack("<IIIIIIIIIIII", f[offset+4:offset+52])
+	    self.chunkcount, decompbase, unk0c, self.datalen, self.datastart, a,b,c,d,e,f, self.chunksize = struct.unpack("<IIIIIIIIIIII", f[offset+4:offset+52])
 	    self.huff_end = self.datastart + self.datalen
         else:
             self.huff_start = 0xFFFFFFFF
@@ -376,7 +379,6 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                 huff_end = min(huff_end, mod.Offset)
             else:
                 print "Huffman module data:  %r %08X/%08X" % (mod.Name.rstrip('\0'), self.datastart, self.datalen)
-                print "Huffman freq offsets: %r %08X/%08X" % (mod.Name.rstrip('\0'),self.huff_start + 0x40, self.llutlen)
                 nhuffs += 1
         for imod in range(len(self.modules)):
             mod = self.modules[imod]
@@ -395,7 +397,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                         nm = self.PartitionName
 
 		    soff = self.huff_start + 0x40
-                    size = self.llutlen
+                    size = self.chunkcount*4
 		    ext = "huffoff"
                     fnametab = "%s_mod.%s" % (nm, ext)
                     print " => %s" % (fnametab),
@@ -428,19 +430,30 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             open(fname, "wb").write(f[soff:soff+subsize])
             extract_code_mods(subtag, f, soff)
 
-        # Huffman table
-	fhufftab = open("%s_mod.hufftab" % self.PartitionName, "w")
-	fhufftab.write("Huffman hex frequency table:\n")
-	fhufftab.write("Frequency  CHR     Flag + Offset\n")
-        for huffoff in range(self.llutlen/4):
+        # Huffman chunks
+	fhufftab = open("%s_mod.huffchunksummary" % self.PartitionName, "w")
+	fhufftab.write("Huffman chunks:\n")
+        chunksize = self.chunksize
+
+        huffmanoffsets = []
+	for huffoff in range(self.chunkcount):
             soff = self.huff_start + 0x40 + huffoff*4
-            huffmanoffsets = HuffmanOffsets()
-            huffmanoffsets.asword = struct.unpack("<I", f[soff:soff+4])[0]
-            lengt = divmod(huffmanoffsets.asword, 0x10000000)[0] / 4 + 1
-            hufftab = struct.unpack("<I", f[huffmanoffsets.b.Offset:huffmanoffsets.b.Offset+4])[0]
-            hufftab = divmod(hufftab, 1 << (8*(lengt)))[1]
-            fhufftab.write("0x%08X 0x%02X    (0x%08X)\n"  % (hufftab, huffoff, huffmanoffsets.asword))
+            huffmanoffsets.append([struct.unpack("<I", f[soff:soff+4])[0],struct.unpack("B", f[soff+3:soff+4])[0]])
+            huffmanoffsets[huffoff][1] = (huffmanoffsets[huffoff][0] >> 24) & 0xFF
+            huffmanoffsets[huffoff][0] = huffmanoffsets[huffoff][0] & 0xFFFFFF
+            print "0x%04X 0x%02X    (0x%06X)\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0])
+            fhufftab.write("0x%04X 0x%02X    (0x%06X)\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0]))
         fhufftab.close()
+        huffmanoffsets.append([self.datastart, 0x00])
+        huffmanoffsets = sorted(huffmanoffsets, key=itemgetter(0))
+        for huffoff in range(self.chunkcount):
+            flag = huffmanoffsets[huffoff][1]
+            if flag != 0x80:
+                offset0 = huffmanoffsets[huffoff][0]
+                offset1 = huffmanoffsets[huffoff+1][0]
+                chunklen = offset1 - offset0
+                # not sure if these are the correct chunks yet
+		#open("%s_chunk_%02X_%04d.huff" % (self.PartitionName, flag, huffoff), "wb").write(f[self.datastart+offset0:self.datastart+offset1])
 
     def pprint(self):
         print "Module Type: %d, Subtype: %d" % (self.ModuleType, self.ModuleSubType)
