@@ -441,7 +441,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             huffmanoffsets.append([struct.unpack("<I", f[soff:soff+4])[0],struct.unpack("B", f[soff+3:soff+4])[0]])
             huffmanoffsets[huffoff][1] = (huffmanoffsets[huffoff][0] >> 24) & 0xFF
             huffmanoffsets[huffoff][0] = huffmanoffsets[huffoff][0] & 0xFFFFFF
-            print "0x%04X 0x%02X    (0x%06X)\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0])
+            print "0x%04X 0x%02X    (0x%06X)"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0])
             fhufftab.write("0x%04X 0x%02X    (0x%06X)\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0]))
         fhufftab.close()
         huffmanoffsets.append([self.datastart, 0x00])
