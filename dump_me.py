@@ -442,7 +442,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
             huffmanoffsets[huffoff][1] = (huffmanoffsets[huffoff][0] >> 24) & 0xFF
             huffmanoffsets[huffoff][0] = huffmanoffsets[huffoff][0] & 0xFFFFFF
             print "0x%04X 0x%02X    (0x%06X)"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0])
-            fhufftab.write("0x%04X 0x%02X    (0x%06X)\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0]))
+            fhufftab.write("0x%04X 0x%02X    (0x%06X) 0x%04X\n"  % (huffoff, huffmanoffsets[huffoff][1], huffmanoffsets[huffoff][0], huffmanoffsets[huffoff][0] - huffmanoffsets[huffoff-1][0]))
         fhufftab.close()
         huffmanoffsets.append([self.datastart, 0x00])
         huffmanoffsets = sorted(huffmanoffsets, key=itemgetter(0))
@@ -452,8 +452,7 @@ class MeManifestHeader(ctypes.LittleEndianStructure):
                 offset0 = huffmanoffsets[huffoff][0]
                 offset1 = huffmanoffsets[huffoff+1][0]
                 chunklen = offset1 - offset0
-                # not sure if these are the correct chunks yet
-		#open("%s_chunk_%02X_%04d.huff" % (self.PartitionName, flag, huffoff), "wb").write(f[self.datastart+offset0:self.datastart+offset1])
+		open("%s_chunk_%02X_%04d.huff" % (self.PartitionName, flag, huffoff), "wb").write(f[offset0:offset1])
 
     def pprint(self):
         print "Module Type: %d, Subtype: %d" % (self.ModuleType, self.ModuleSubType)
